@@ -6,7 +6,6 @@
 
 """
 Sql Env Environment Implementation.
-
 A simple test environment that echoes back messages sent to it.
 Perfect for testing HTTP server infrastructure.
 """
