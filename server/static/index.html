@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL Optimizer Environment</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0e17;
+            --bg-panel: #111827;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent-glow: #0ea5e9;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Sidebar Styling */
+        .sidebar {
+            width: 280px;
+            background-color: var(--bg-panel);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+        }
+
+        .sidebar h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .sidebar p.subtitle {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 32px;
+            line-height: 1.4;
+        }
+
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .task-btn {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-main);
+            padding: 14px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: left;
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .task-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 4px; height: 100%;
+            background: var(--accent-glow);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .task-btn:hover {
+            background: rgba(14, 165, 233, 0.1);
+            border-color: rgba(14, 165, 233, 0.3);
+        }
+
+        .task-btn.active {
+            background: rgba(14, 165, 233, 0.15);
+            border-color: var(--accent-glow);
+            color: white;
+        }
+
+        .task-btn.active::before {
+            opacity: 1;
+        }
+
+        .score-board {
+            margin-top: auto;
+            padding: 16px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .score-board .label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+        }
+
+        .score-board .score {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-success);
+            text-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+            margin-top: 4px;
+        }
+
+        /* Main Workspace */
+        .workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            gap: 20px;
+            height: 100vh;
+        }
+
+        /* Top Info Bar */
+        .info-panel {
+            background: linear-gradient(145deg, var(--bg-panel), #141f33);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(14, 165, 233, 0.2);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        .info-panel h2 {
+            font-size: 1rem;
+            color: var(--accent-glow);
+            margin-bottom: 8px;
+        }
+
+        .info-panel p {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            color: #cbd5e1;
+            white-space: pre-wrap;
+        }
+
+        .info-panel .schema {
+            margin-top: 12px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            color: var(--accent-warning);
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 6px;
+            white-space: pre-wrap;
+        }
+
+        /* Split Editor Output */
+        .editor-container {
+            display: flex;
+            gap: 20px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-panel);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.05);
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            background: rgba(0,0,0,0.2);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .editor-area {
+            flex: 1;
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: #a5b4fc;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.95rem;
+            padding: 16px;
+            resize: none;
+            outline: none;
+            line-height: 1.5;
+        }
+
+        .editor-area:focus {
+            background: rgba(255,255,255,0.01);
+        }
+
+        .actions {
+            padding: 16px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            gap: 12px;
+            background: rgba(0,0,0,0.2);
+        }
+
+        .btn-action {
+            flex: 1;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-test {
+            background: rgba(14, 165, 233, 0.1);
+            color: var(--accent-glow);
+            border: 1px solid rgba(14, 165, 233, 0.3);
+        }
+
+        .btn-test:hover {
+            background: rgba(14, 165, 233, 0.2);
+            box-shadow: 0 0 15px rgba(14, 165, 233, 0.2);
+        }
+
+        .btn-submit {
+            background: var(--accent-success);
+            color: #064e3b;
+            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.2);
+        }
+
+        .btn-submit:hover {
+            background: #34d399;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            transform: translateY(-1px);
+        }
+
+        /* Terminal Output */
+        .terminal {
+            flex: 1;
+            padding: 16px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            color: #e2e8f0;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .term-line {
+            line-height: 1.5;
+            word-wrap: break-word;
+            opacity: 0;
+            animation: fadeIn 0.3s ease forwards;
+        }
+
+        .term-system { color: #94a3b8; }
+        .term-success { color: var(--accent-success); }
+        .term-error { color: #ef4444; }
+        .term-glow { color: var(--accent-glow); }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        /* Loading Dots */
+        .loader {
+            display: none;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+            box-shadow: 16px 0 0 0 currentColor, -16px 0 0 0 currentColor;
+            animation: fetchPulse 1.5s infinite linear;
+        }
+
+        @keyframes fetchPulse {
+            0% { box-shadow: 16px 0 0 0 currentColor, -16px 0 0 0 rgba(255,255,255,0.2); background-color: rgba(255,255,255,0.2); }
+            33% { box-shadow: 16px 0 0 0 rgba(255,255,255,0.2), -16px 0 0 0 currentColor; background-color: currentColor; }
+            66% { box-shadow: 16px 0 0 0 currentColor, -16px 0 0 0 currentColor; background-color: rgba(255,255,255,0.2); }
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <h1>SQL Optimizer</h1>
+        <p class="subtitle">OpenEnv Compliant AI Evaluation Framework</p>
+
+        <div class="task-list">
+            <button class="task-btn" onclick="startEnvironment('easy')" id="btn-easy">Easy Task</button>
+            <button class="task-btn" onclick="startEnvironment('medium')" id="btn-medium">Medium Task</button>
+            <button class="task-btn" onclick="startEnvironment('hard')" id="btn-hard">Hard Task</button>
+        </div>
+
+        <div class="score-board">
+            <div class="label">Total Reward</div>
+            <div class="score" id="reward-display">0.00</div>
+        </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="workspace">
+        
+        <!-- Info Panel -->
+        <div class="info-panel" id="info-panel">
+            <h2>Select a task to begin...</h2>
+            <p id="task-desc">Waiting for initialization request targeting the environment server.</p>
+            <div class="schema" id="task-schema" style="display:none;"></div>
+        </div>
+
+        <!-- Editor and Terminal -->
+        <div class="editor-container">
+            
+            <!-- SQL Editor -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Query Editor</span>
+                    <div class="loader" id="editor-loader" style="transform: scale(0.6);"></div>
+                </div>
+                <textarea class="editor-area" id="sql-input" placeholder="-- Type your SQL query here..." spellcheck="false" disabled></textarea>
+                <div class="actions">
+                    <button class="btn-action btn-test" id="btn-act-test" onclick="submitAction('test')" disabled>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        Test Query
+                    </button>
+                    <button class="btn-action btn-submit" id="btn-act-submit" onclick="submitAction('submit')" disabled>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                        Submit Final
+                    </button>
+                </div>
+            </div>
+
+            <!-- Output Terminal -->
+            <div class="panel">
+                <div class="panel-header">System Output</div>
+                <div class="terminal" id="terminal">
+                    <div class="term-line term-system">Welcome to OpenEnv Console.</div>
+                    <div class="term-line term-system">Connected to SqlEnvironment (local) - v1.0.0</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = ""; // Hits relative endpoints when hosted directly via FastAPI
+        
+        let totalReward = 0.0;
+        let isDone = false;
+
+        function logTerminal(message, type="system") {
+            const term = document.getElementById("terminal");
+            const div = document.createElement("div");
+            div.className = `term-line term-${type}`;
+            div.textContent = `> ${message}`;
+            term.appendChild(div);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function setUIToggles(loading, editing) {
+            const ldr = document.getElementById("editor-loader");
+            const inp = document.getElementById("sql-input");
+            const bt1 = document.getElementById("btn-act-test");
+            const bt2 = document.getElementById("btn-act-submit");
+
+            if (loading) {
+                ldr.style.display = "block";
+                bt1.disabled = true;
+                bt2.disabled = true;
+            } else {
+                ldr.style.display = "none";
+                if (editing && !isDone) {
+                    inp.disabled = false;
+                    bt1.disabled = false;
+                    bt2.disabled = false;
+                } else {
+                    inp.disabled = true;
+                    bt1.disabled = true;
+                    bt2.disabled = true;
+                }
+            }
+        }
+
+        async function startEnvironment(taskLevel) {
+            logTerminal(`Initializing database environment for task: [${taskLevel}]...`, "glow");
+            
+            // Set styles
+            document.querySelectorAll(".task-btn").forEach(btn => btn.classList.remove("active"));
+            document.getElementById(`btn-${taskLevel}`).classList.add("active");
+            
+            // Wipe slate
+            totalReward = 0.0;
+            document.getElementById("reward-display").textContent = "0.00";
+            isDone = false;
+            setUIToggles(true, false);
+            
+            try {
+                // OpenEnv reset endpoint via HTTP
+                const response = await fetch(`${API_BASE}/reset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ opts: { task: taskLevel } })
+                });
+
+                if (!response.ok) throw new Error("Server error " + response.status);
+                
+                const obs = await response.json();
+                
+                // Populate Workspace
+                document.getElementById("info-panel").querySelector("h2").textContent = `Task: ${taskLevel.toUpperCase()}`;
+                document.getElementById("task-desc").textContent = obs.task_description;
+                
+                const schm = document.getElementById("task-schema");
+                if (obs.schema_info) {
+                    schm.style.display = "block";
+                    schm.textContent = obs.schema_info;
+                } else {
+                    schm.style.display = "none";
+                }
+
+                document.getElementById("sql-input").value = obs.initial_query || "";
+                
+                logTerminal(`✓ Database loaded and isolated.`);
+                if(obs.feedback) logTerminal(`Feedback: ${obs.feedback}`, "system");
+
+                setUIToggles(false, true);
+
+            } catch (err) {
+                logTerminal(`Failed to connect to environment: ${err.message}`, "error");
+                setUIToggles(false, false);
+            }
+        }
+
+        async function submitAction(actionType) {
+            if (isDone) {
+                logTerminal("Environment instance is terminated. Please reset.", "error"); return;
+            }
+
+            const queryText = document.getElementById("sql-input").value.trim();
+            if(!queryText) {
+                logTerminal("Please enter a SQL query.", "error"); return;
+            }
+
+            logTerminal(`[${actionType.toUpperCase()}] Request Dispatched...`, "glow");
+            setUIToggles(true, false);
+
+            try {
+                // OpenEnv step endpoint
+                const response = await fetch(`${API_BASE}/step`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action_type: actionType,
+                        query: queryText
+                    })
+                });
+
+                const rawRes = await response.json();
+                
+                // OpenEnv format is Observation (task_description, schema_info, initial_query, feedback) WITH reward and done attached possibly at top level HTTP payload usually but standard openenv returns observation inline. Wait, standard OpenEnv returns { observation: {..}, reward: x, done: x, info: {..} } via fastAPI HTTP wrapper.
+                
+                // Let's elegantly extract the data based on how FastAPI standard wrap behaves or direct dump
+                let stepData = rawRes;
+                let obsData = stepData.observation || stepData;
+                let feedBk = obsData.feedback || (rawRes.detail ? JSON.stringify(rawRes.detail) : "Null Response");
+                
+                let rw = stepData.reward !== undefined && stepData.reward !== null ? stepData.reward : (obsData.reward || 0.0);
+                isDone = stepData.done !== undefined ? stepData.done : (obsData.done || false);
+
+                // Update UI state
+                totalReward += rw;
+                document.getElementById("reward-display").textContent = totalReward.toFixed(2);
+
+                if (String(feedBk).toLowerCase().includes("error") || String(feedBk).toLowerCase().includes("syntax") || rw <= 0 && actionType === 'submit') {
+                    logTerminal(`${feedBk}`, "error");
+                } else {
+                    logTerminal(`${feedBk}`, "success");
+                }
+
+                if (rw > 0 && !isDone) {
+                    logTerminal(`Partial Reward Received: +${rw.toFixed(2)}`, "success");
+                }
+
+                if (isDone) {
+                    logTerminal(`Environment Done. Final Reward: +${rw.toFixed(2)}`, rw >= 0.8 ? "success" : "error");
+                    document.getElementById("task-desc").textContent = "Task Completed. Check terminal for final grade.";
+                    setUIToggles(false, false);
+                } else {
+                    setUIToggles(false, true);
+                }
+
+            } catch (err) {
+                logTerminal(`Execution Failed: ${err.message}`, "error");
+                setUIToggles(false, true);
+            }
+        }
+        
+    </script>
+</body>
+</html>
