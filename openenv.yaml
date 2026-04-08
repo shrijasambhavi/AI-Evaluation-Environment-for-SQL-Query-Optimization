@@ -1,0 +1,14 @@
+name: sql-env
+description: SQL Query Reviewer and Optimizer Environment
+version: 0.1.0
+components:
+  environment: server.sql_env_environment:SqlEnvironment
+  action: models:SqlEnvAction
+  observation: models:SqlEnvObservation
+tasks:
+  easy:
+    description: Fix a syntactically broken SQL query.
+  medium:
+    description: Optimize a slow query to use an explicit JOIN instead of a table scan.
+  hard:
+    description: Rewrite a multi-table query from scratch with a token budget.

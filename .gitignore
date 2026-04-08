@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Packages
+*.egg
+*.egg-info/
+.installed.cfg
+*.manifest
+
+# OS generated files
+.DS_Store
+Thumbs.db
