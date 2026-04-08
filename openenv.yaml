@@ -1,6 +1,7 @@
 name: sql-env
 description: SQL Query Reviewer and Optimizer Environment
 version: 0.1.0
+base_url: https://shrijasambhavi-ai-evaluation-environment-for-sql-2190642.hf.space
 components:
   environment: server.sql_env_environment:SqlEnvironment
   action: models:SqlEnvAction
