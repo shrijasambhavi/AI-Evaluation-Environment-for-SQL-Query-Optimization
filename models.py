@@ -29,3 +29,5 @@ class SqlEnvObservation(Observation):
     feedback: str = Field(default="", description="Execution result, output rows, or error trace")
     done: bool = Field(default=False, description="Whether the episode has ended")
     reward: float = Field(default=0.0, description="Reward for the last action")
+    done: bool = Field(default=False, description="Whether the episode has ended")
+    reward: float = Field(default=0.0, description="Reward for the last action")
