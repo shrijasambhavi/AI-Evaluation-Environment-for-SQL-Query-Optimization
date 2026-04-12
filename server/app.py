@@ -1,32 +1,6 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-"""
-FastAPI application for the Sql Env Environment.
-This module creates an HTTP server that exposes the SqlEnvironment
-over HTTP and WebSocket endpoints, compatible with EnvClient.
-Endpoints:
-    - POST /reset: Reset the environment
-    - POST /step: Execute an action
-    - GET /state: Get current environment state
-    - GET /schema: Get action/observation schemas
-    - WS /ws: WebSocket endpoint for persistent sessions
-Usage:
-    # Development (with auto-reload):
-    uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
-    # Production:
-    uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 4
-    # Or run directly:
-    python -m server.app
-"""
-try:
-    from openenv.core.env_server.http_server import create_app
-except Exception as e:  # pragma: no cover
-    raise ImportError(
-        "openenv is required for the web interface. Install dependencies with '\n    uv sync\n'"
-    ) from e
+from openenv.core.env_server.http_server import create_app
+
+# Import models + environment (supports both local & packaged execution)
 try:
     from ..models import SqlEnvAction, SqlEnvObservation
     from .sql_env_environment import SqlEnvironment
@@ -34,7 +8,7 @@ except (ModuleNotFoundError, ImportError):
     from models import SqlEnvAction, SqlEnvObservation
     from server.sql_env_environment import SqlEnvironment
 
-# Create the app with web interface and README integration
+# Create OpenEnv app (this auto-registers /reset, /step, /state)
 app = create_app(
     SqlEnvironment,
     SqlEnvAction,
@@ -43,26 +17,13 @@ app = create_app(
     max_concurrent_envs=1,
 )
 
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from fastapi import Body
-import os
-
-# Mount the static directory to serve index.html and assets
-static_path = os.path.join(os.path.dirname(__file__), "static")
-if os.path.exists(static_path):
-    app.mount("/static", StaticFiles(directory=static_path), name="static")
-
 @app.get("/")
 async def root():
-    return FileResponse(os.path.join(static_path, "index.html"))
+    return {"status": "ok"}
 
-@app.post("/reset")
-def reset_override(body: dict = Body(default={})):
-    task = body.get("task", "easy")
-    env = SqlEnvironment()
-    obs = env.reset(task=task)
-    return obs.model_dump()
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
 
 def main(host: str = "0.0.0.0", port: int = 7860):
     import uvicorn
