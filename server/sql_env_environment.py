@@ -1,6 +1,3 @@
-# Copyright (c) Meta Platforms, Inc.
-# Modified for OpenEnv Hackathon - Fully Validator Safe Version
-
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
@@ -15,77 +12,63 @@ except (ModuleNotFoundError, ImportError):
 
 
 class SqlEnvironment(Environment):
-    """
-    SQL Query Reviewer & Optimizer environment.
-    Fully compatible with OpenEnv validator.
-    """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
     def __init__(self):
         self._state = State(episode_id=str(uuid4()), step_count=0)
-        self._reset_count = 0
         self.conn = None
         self.current_task_key = None
         self.current_task_info = None
 
-    # ✅ FINAL RESET (handles ALL validator formats)
-    def reset(self, *args, **kwargs) -> SqlEnvObservation:
+    # ✅ FIXED RESET (returns tuple → fixes reward null issue)
+    def reset(self, *args, **kwargs):
         self._state = State(episode_id=str(uuid4()), step_count=0)
-        self._reset_count += 1
 
         task = "easy"
 
+        # Handle validator formats safely
         try:
-            # Case 1: kwargs
             if "task" in kwargs:
                 task = kwargs["task"]
             elif "task_id" in kwargs:
                 task = kwargs["task_id"]
-
-            # Case 2: args
             elif len(args) > 0:
                 arg = args[0]
-
                 if isinstance(arg, dict):
                     task = arg.get("task") or arg.get("task_id") or "easy"
                 elif isinstance(arg, str):
                     task = arg
-
         except Exception:
             task = "easy"
 
-        # Validate task safely
         if not isinstance(task, str) or task not in TASKS:
             task = "easy"
 
         self.current_task_key = task
         self.current_task_info = TASKS[task]
 
-        # Safe DB handling
+        # Reset DB safely
         try:
             if self.conn:
                 self.conn.close()
         except Exception:
             pass
 
-        try:
-            self.conn = self.current_task_info["setup_fn"]()
-        except Exception:
-            # fallback to avoid crash
-            self.conn = self.current_task_info["setup_fn"]()
+        self.conn = self.current_task_info["setup_fn"]()
 
-        return SqlEnvObservation(
+        observation = SqlEnvObservation(
             task_description=str(self.current_task_info.get("description", "")),
             schema_info=str(self.current_task_info.get("schema_info", "")),
             initial_query=str(self.current_task_info.get("initial_query", "")),
-            feedback="Ready. Submit action_type 'test' to explore or 'submit' to finalize.",
-            done=False,
-            reward=0.0
+            feedback="Ready. Use 'test' to explore or 'submit' to finalize."
         )
 
-    # ✅ STEP (safe + robust)
-    def step(self, action: SqlEnvAction) -> SqlEnvObservation:  # type: ignore[override]
+        # 🚨 CRITICAL FIX: return tuple (prevents reward=null)
+        return observation, 0.0, False, {}
+
+    # ✅ FIXED STEP (already correct format)
+    def step(self, action: SqlEnvAction):
         self._state.step_count += 1
 
         if not self.conn:
@@ -126,15 +109,15 @@ class SqlEnvironment(Environment):
             reward = -0.1
             done = False
 
-        return SqlEnvObservation(
+        observation = SqlEnvObservation(
             task_description=str(self.current_task_info.get("description", "")),
             schema_info=str(self.current_task_info.get("schema_info", "")),
             initial_query=str(self.current_task_info.get("initial_query", "")),
-            feedback=str(feedback),
-            done=bool(done),
-            reward=float(reward),
-            metadata={"step": self._state.step_count}
+            feedback=str(feedback)
         )
+
+        # 🚨 REQUIRED FORMAT
+        return observation, float(reward), bool(done), {}
 
     @property
     def state(self) -> State:
