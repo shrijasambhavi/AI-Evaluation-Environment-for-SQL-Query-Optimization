@@ -21,56 +21,70 @@ class SqlEnvironment(Environment):
         self.current_task_key = None
         self.current_task_info = None
 
-    # ✅ RESET (correct)
+    # =========================
+    # RESET
+    # =========================
     def reset(self, *args, **kwargs):
-        self._state = State(episode_id=str(uuid4()), step_count=0)
-
-        task = "easy"
-
         try:
-            if "task" in kwargs:
-                task = kwargs["task"]
-            elif "task_id" in kwargs:
-                task = kwargs["task_id"]
-            elif len(args) > 0:
-                arg = args[0]
-                if isinstance(arg, dict):
-                    task = arg.get("task") or arg.get("task_id") or "easy"
-                elif isinstance(arg, str):
-                    task = arg
-        except Exception:
+            self._state = State(episode_id=str(uuid4()), step_count=0)
+
             task = "easy"
 
-        if not isinstance(task, str) or task not in TASKS:
-            task = "easy"
+            # Handle validator formats
+            try:
+                if "task" in kwargs:
+                    task = kwargs["task"]
+                elif "task_id" in kwargs:
+                    task = kwargs["task_id"]
+                elif len(args) > 0:
+                    arg = args[0]
+                    if isinstance(arg, dict):
+                        task = arg.get("task") or arg.get("task_id") or "easy"
+                    elif isinstance(arg, str):
+                        task = arg
+            except Exception:
+                task = "easy"
 
-        self.current_task_key = task
-        self.current_task_info = TASKS[task]
+            if not isinstance(task, str) or task not in TASKS:
+                task = "easy"
 
-        # reset DB safely
-        try:
-            if self.conn:
-                self.conn.close()
-        except Exception:
-            pass
+            self.current_task_key = task
+            self.current_task_info = TASKS[task]
 
-        self.conn = self.current_task_info["setup_fn"]()
+            # Close old connection
+            try:
+                if self.conn:
+                    self.conn.close()
+            except Exception:
+                pass
 
-        observation = SqlEnvObservation(
-            task_description=str(self.current_task_info.get("description", "")),
-            schema_info=str(self.current_task_info.get("schema_info", "")),
-            initial_query=str(self.current_task_info.get("initial_query", "")),
-            feedback="Ready. Use 'test' to explore or 'submit' to finalize."
-        )
+            # Create new DB
+            self.conn = self.current_task_info["setup_fn"]()
 
-        return observation
+            return SqlEnvObservation(
+                task_description=str(self.current_task_info.get("description", "")),
+                schema_info=str(self.current_task_info.get("schema_info", "")),
+                initial_query=str(self.current_task_info.get("initial_query", "")),
+                feedback="Ready. Use 'test' or 'submit'."
+            )
 
-    # ✅ STEP (FULLY FIXED)
+        except Exception as e:
+            # NEVER crash
+            return SqlEnvObservation(
+                task_description="",
+                schema_info="",
+                initial_query=None,
+                feedback=f"Reset error: {str(e)}"
+            )
+
+    # =========================
+    # STEP (100% SAFE)
+    # =========================
     def step(self, action: SqlEnvAction):
         self._state.step_count += 1
 
-        # safety: ensure reset was called
-        if not self.conn:
+        # Safety: ensure reset happened
+        if not self.conn or not self.current_task_info:
             return (
                 SqlEnvObservation(
                     task_description="",
@@ -88,6 +102,7 @@ class SqlEnvironment(Environment):
         feedback = ""
 
         try:
+            # ================= TEST =================
             if action.action_type == "test":
                 try:
                     cursor = self.conn.cursor()
@@ -98,23 +113,40 @@ class SqlEnvironment(Environment):
                     cursor.execute(action.query)
                     rows = cursor.fetchmany(10)
 
-                    feedback = f"Execution successful. First 10 rows: {rows}"
+                    feedback = f"Execution successful. Rows: {rows}"
                     reward = 0.05
 
                 except Exception as e:
                     feedback = f"Query failed: {str(e)}"
                     reward = -0.05
 
+            # ================= SUBMIT =================
             elif action.action_type == "submit":
                 done = True
+
                 try:
-                    grader_fn = getattr(Graders, f"grade_{self.current_task_key}")
+                    if not self.current_task_key:
+                        raise ValueError("Task not initialized")
+
+                    grader_fn = getattr(
+                        Graders,
+                        f"grade_{self.current_task_key}",
+                        None
+                    )
+
+                    if grader_fn is None:
+                        raise ValueError(
+                            f"No grader found for task: {self.current_task_key}"
+                        )
+
                     score, feedback = grader_fn(self.conn, action.query)
                     reward = float(score)
+
                 except Exception as e:
                     feedback = f"Grading error: {str(e)}"
                     reward = -0.1
 
+            # ================= INVALID ACTION =================
             else:
                 feedback = "Invalid action_type. Use 'test' or 'submit'."
                 reward = -0.1
