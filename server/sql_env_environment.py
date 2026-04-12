@@ -1,14 +1,5 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-
-"""
-Sql Env Environment Implementation.
-A simple test environment that echoes back messages sent to it.
-Perfect for testing HTTP server infrastructure.
-"""
+# Copyright (c) Meta Platforms, Inc.
+# Modified for OpenEnv hackathon validation compatibility
 
 from uuid import uuid4
 
@@ -22,10 +13,13 @@ except (ModuleNotFoundError, ImportError):
     from models import SqlEnvAction, SqlEnvObservation
     from server.tasks import TASKS, Graders
 
+
 class SqlEnvironment(Environment):
     """
     SQL Query Reviewer & Optimizer environment.
+    Validator-safe implementation.
     """
+
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
     def __init__(self):
@@ -35,68 +29,99 @@ class SqlEnvironment(Environment):
         self.current_task_key = None
         self.current_task_info = None
 
-    def reset(self, task: str = "easy") -> SqlEnvObservation:
+    # ✅ FIXED RESET (validator-safe)
+    def reset(self, task: str = "easy", seed: int = None, **kwargs) -> SqlEnvObservation:
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._reset_count += 1
-        
-        # Default to easy if invalid task passed
+
+        # 🧠 Handle ANY input format safely
+        try:
+            # If validator sends JSON body as dict
+            if isinstance(task, dict):
+                task = task.get("task") or task.get("task_id") or "easy"
+
+            # If no task passed
+            if not isinstance(task, str):
+                task = "easy"
+
+        except Exception:
+            task = "easy"
+
+        # ✅ Validate task
         if task not in TASKS:
             task = "easy"
-            
+
         self.current_task_key = task
         self.current_task_info = TASKS[task]
-        
-        # Initialize in-memory database
-        if self.conn:
-            self.conn.close()
-        self.conn = self.current_task_info["setup_fn"]()
-        
+
+        # 🔧 Safe DB initialization
+        try:
+            if self.conn:
+                self.conn.close()
+        except Exception:
+            pass
+
+        try:
+            self.conn = self.current_task_info["setup_fn"]()
+        except Exception:
+            # fallback (avoid crash)
+            self.conn = self.current_task_info["setup_fn"]()
+
+        # ✅ Always return safe, non-null values
         return SqlEnvObservation(
-            task_description=self.current_task_info["description"],
-            schema_info=self.current_task_info["schema_info"],
-            initial_query=self.current_task_info["initial_query"],
+            task_description=str(self.current_task_info.get("description", "")),
+            schema_info=str(self.current_task_info.get("schema_info", "")),
+            initial_query=str(self.current_task_info.get("initial_query", "")),
             feedback="Ready. Submit action_type 'test' to explore or 'submit' to finalize.",
             done=False,
             reward=0.0
         )
 
+    # ✅ STEP (safe)
     def step(self, action: SqlEnvAction) -> SqlEnvObservation:  # type: ignore[override]
         self._state.step_count += 1
-        
+
         if not self.conn:
-            # Recreate DB in case reset wasn't called (shouldn't happen)
             self.reset()
 
         reward = 0.0
         done = False
         feedback = ""
 
-        if action.action_type == "test":
-            # Test the query and return results directly
-            try:
-                cursor = self.conn.cursor()
-                cursor.execute(action.query)
-                rows = cursor.fetchmany(10) # limit output to avoid massive prompts
-                feedback = f"Execution successful. First 10 rows: {rows}"
-                reward = 0.05 # small partial reward for successful test to prevent blind guessing
-            except Exception as e:
-                feedback = f"Syntax or execution error: {str(e)}"
-                reward = -0.05
-                
-        elif action.action_type == "submit":
-            # Grade final submission
-            done = True
-            grader_fn = getattr(Graders, f"grade_{self.current_task_key}")
-            score, feedback = grader_fn(self.conn, action.query)
-            reward = score
+        try:
+            if action.action_type == "test":
+                try:
+                    cursor = self.conn.cursor()
+                    cursor.execute(action.query)
+                    rows = cursor.fetchmany(10)
+                    feedback = f"Execution successful. First 10 rows: {rows}"
+                    reward = 0.05
+                except Exception as e:
+                    feedback = f"Syntax or execution error: {str(e)}"
+                    reward = -0.05
+
+            elif action.action_type == "submit":
+                done = True
+                grader_fn = getattr(Graders, f"grade_{self.current_task_key}")
+                score, feedback = grader_fn(self.conn, action.query)
+                reward = float(score)
+
+            else:
+                feedback = "Invalid action_type. Use 'test' or 'submit'."
+                reward = -0.1
+
+        except Exception as e:
+            feedback = f"Unexpected error: {str(e)}"
+            reward = -0.1
+            done = False
 
         return SqlEnvObservation(
-            task_description=self.current_task_info["description"],
-            schema_info=self.current_task_info["schema_info"],
-            initial_query=self.current_task_info["initial_query"],
-            feedback=feedback,
-            done=done,
-            reward=reward,
+            task_description=str(self.current_task_info.get("description", "")),
+            schema_info=str(self.current_task_info.get("schema_info", "")),
+            initial_query=str(self.current_task_info.get("initial_query", "")),
+            feedback=str(feedback),
+            done=bool(done),
+            reward=float(reward),
             metadata={"step": self._state.step_count}
         )
 
