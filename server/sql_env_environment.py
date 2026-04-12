@@ -1,4 +1,5 @@
 from uuid import uuid4
+from typing import Any, Dict
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
@@ -22,7 +23,7 @@ class SqlEnvironment(Environment):
         self.current_task_info = None
 
     # =========================
-    # RESET (SAFE)
+    # RESET
     # =========================
     def reset(self, *args, **kwargs):
         try:
@@ -71,20 +72,28 @@ class SqlEnvironment(Environment):
             )
 
     # =========================
-    # STEP (FULLY SAFE)
+    # STEP (ACCEPTS BOTH FORMATS + NEVER CRASHES)
     # =========================
-    def step(self, action: SqlEnvAction):
+    def step(self, action: Any):
         try:
             self._state.step_count += 1
 
-            # Ensure reset happened
+            # -------- NORMALIZE INPUT --------
+            if isinstance(action, dict):
+                # case 1: {"action": {...}}
+                if "action" in action:
+                    action = action["action"]
+
+                action = SqlEnvAction(**action)
+
+            # -------- SAFETY CHECK --------
             if not self.conn or not self.current_task_info:
                 return (
                     SqlEnvObservation(
                         task_description="",
                         schema_info="",
                         initial_query=None,
-                        feedback="Environment not initialized. Call /reset first."
+                        feedback="Call /reset first"
                     ),
                     0.0,
                     True,
@@ -99,18 +108,14 @@ class SqlEnvironment(Environment):
             if action.action_type == "test":
                 try:
                     cursor = self.conn.cursor()
+                    cursor.execute(action.query or "SELECT 1")
+                    rows = cursor.fetchmany(5)
 
-                    if not action.query or not isinstance(action.query, str):
-                        raise ValueError("Invalid query")
-
-                    cursor.execute(action.query)
-                    rows = cursor.fetchmany(10)
-
-                    feedback = f"Execution successful. Rows: {rows}"
+                    feedback = f"OK: {rows}"
                     reward = 0.05
 
                 except Exception as e:
-                    feedback = f"Query failed: {str(e)}"
+                    feedback = f"Query error: {str(e)}"
                     reward = -0.05
 
             # -------- SUBMIT --------
@@ -127,16 +132,15 @@ class SqlEnvironment(Environment):
                         score, feedback = grader_fn(self.conn, action.query)
                         reward = float(score)
                     else:
-                        feedback = "Grader not found"
+                        feedback = "No grader"
                         reward = -0.1
 
                 except Exception as e:
-                    feedback = f"Grading error: {str(e)}"
+                    feedback = f"Grader error: {str(e)}"
                     reward = -0.1
 
-            # -------- INVALID --------
             else:
-                feedback = "Invalid action_type"
+                feedback = "Invalid action"
                 reward = -0.1
 
             observation = SqlEnvObservation(
@@ -146,16 +150,16 @@ class SqlEnvironment(Environment):
                 feedback=str(feedback)
             )
 
-            return observation, float(reward), bool(done), {}
+            return observation, reward, done, {}
 
         except Exception as e:
-            # 🚨 THIS GUARANTEES NO 500 EVER
+            # 🔥 ABSOLUTE SAFETY NET
             return (
                 SqlEnvObservation(
                     task_description="",
                     schema_info="",
                     initial_query=None,
-                    feedback=f"Fatal error: {str(e)}"
+                    feedback=f"Fatal: {str(e)}"
                 ),
                 0.0,
                 True,
