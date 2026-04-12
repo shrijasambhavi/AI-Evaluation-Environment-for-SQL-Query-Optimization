@@ -21,13 +21,12 @@ class SqlEnvironment(Environment):
         self.current_task_key = None
         self.current_task_info = None
 
-    # ✅ FIXED RESET (returns tuple → fixes reward null issue)
+    # ✅ RESET (correct)
     def reset(self, *args, **kwargs):
         self._state = State(episode_id=str(uuid4()), step_count=0)
 
         task = "easy"
 
-        # Handle validator formats safely
         try:
             if "task" in kwargs:
                 task = kwargs["task"]
@@ -48,7 +47,7 @@ class SqlEnvironment(Environment):
         self.current_task_key = task
         self.current_task_info = TASKS[task]
 
-        # Reset DB safely
+        # reset DB safely
         try:
             if self.conn:
                 self.conn.close()
@@ -64,15 +63,25 @@ class SqlEnvironment(Environment):
             feedback="Ready. Use 'test' to explore or 'submit' to finalize."
         )
 
-        # 🚨 CRITICAL FIX: return tuple (prevents reward=null)
-        return observation, 0.0, False, {}
+        return observation
 
-    # ✅ FIXED STEP (already correct format)
+    # ✅ STEP (FULLY FIXED)
     def step(self, action: SqlEnvAction):
         self._state.step_count += 1
 
+        # safety: ensure reset was called
         if not self.conn:
-            self.reset()
+            return (
+                SqlEnvObservation(
+                    task_description="",
+                    schema_info="",
+                    initial_query=None,
+                    feedback="Environment not initialized. Call /reset first."
+                ),
+                0.0,
+                True,
+                {}
+            )
 
         reward = 0.0
         done = False
@@ -82,12 +91,18 @@ class SqlEnvironment(Environment):
             if action.action_type == "test":
                 try:
                     cursor = self.conn.cursor()
+
+                    if not action.query or not isinstance(action.query, str):
+                        raise ValueError("Invalid query")
+
                     cursor.execute(action.query)
                     rows = cursor.fetchmany(10)
+
                     feedback = f"Execution successful. First 10 rows: {rows}"
                     reward = 0.05
+
                 except Exception as e:
-                    feedback = f"Syntax or execution error: {str(e)}"
+                    feedback = f"Query failed: {str(e)}"
                     reward = -0.05
 
             elif action.action_type == "submit":
@@ -116,7 +131,6 @@ class SqlEnvironment(Environment):
             feedback=str(feedback)
         )
 
-        # 🚨 REQUIRED FORMAT
         return observation, float(reward), bool(done), {}
 
     @property
