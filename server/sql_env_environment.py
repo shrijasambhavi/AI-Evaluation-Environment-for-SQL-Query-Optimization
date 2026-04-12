@@ -12,86 +12,79 @@ except Exception:
 
 class SqlEnvironment(Environment):
 
-    SUPPORTS_CONCURRENT_SESSIONS: bool = True
+    SUPPORTS_CONCURRENT_SESSIONS = True
 
     def __init__(self):
         self._state = State(episode_id=str(uuid4()), step_count=0)
-        self.conn = None
 
-    # =========================
-    # RESET
-    # =========================
+    # -------- RESET --------
     def reset(self, *args, **kwargs):
         self._state = State(episode_id=str(uuid4()), step_count=0)
 
         return SqlEnvObservation(
-            task_description="Test SQL environment",
-            schema_info="Dummy schema",
+            task_description="SQL test env",
+            schema_info="dummy",
             initial_query="SELECT 1",
-            feedback="Environment ready"
+            feedback="ready"
         )
 
-    # =========================
-    # STEP (ABSOLUTE SAFE VERSION)
-    # =========================
+    # -------- STEP --------
     def step(self, action: Any):
         try:
             self._state.step_count += 1
 
-            # ---- Normalize input ----
+            # Accept BOTH formats
             if isinstance(action, dict):
                 if "action" in action:
                     action = action["action"]
                 action = SqlEnvAction(**action)
 
-            # ---- Always safe response ----
+            # Always return safe output
             if action.action_type == "test":
                 return (
                     SqlEnvObservation(
-                        task_description="Test SQL environment",
-                        schema_info="Dummy schema",
+                        task_description="SQL test env",
+                        schema_info="dummy",
                         initial_query="SELECT 1",
-                        feedback="Test executed successfully"
+                        feedback="test ok"
                     ),
                     0.05,
                     False,
                     {}
                 )
 
-            elif action.action_type == "submit":
+            if action.action_type == "submit":
                 return (
                     SqlEnvObservation(
-                        task_description="Test SQL environment",
-                        schema_info="Dummy schema",
+                        task_description="SQL test env",
+                        schema_info="dummy",
                         initial_query="SELECT 1",
-                        feedback="Submission accepted"
+                        feedback="submit ok"
                     ),
                     1.0,
                     True,
                     {}
                 )
 
-            else:
-                return (
-                    SqlEnvObservation(
-                        task_description="Test SQL environment",
-                        schema_info="Dummy schema",
-                        initial_query="SELECT 1",
-                        feedback="Invalid action"
-                    ),
-                    -0.1,
-                    True,
-                    {}
-                )
+            return (
+                SqlEnvObservation(
+                    task_description="SQL test env",
+                    schema_info="dummy",
+                    initial_query="SELECT 1",
+                    feedback="invalid action"
+                ),
+                -0.1,
+                True,
+                {}
+            )
 
         except Exception as e:
-            # 🔥 NOTHING can crash now
             return (
                 SqlEnvObservation(
                     task_description="",
                     schema_info="",
                     initial_query=None,
-                    feedback=f"Fatal: {str(e)}"
+                    feedback=f"error: {str(e)}"
                 ),
                 0.0,
                 True,
@@ -99,5 +92,5 @@ class SqlEnvironment(Environment):
             )
 
     @property
-    def state(self) -> State:
+    def state(self):
         return self._state
