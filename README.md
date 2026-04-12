@@ -1,4 +1,14 @@
-# SQL Query Reviewer & Optimizer
+---
+title: AI-Evaluation-Environment-for-SQL-Query-Optimization
+emoji: 🚀
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
+# AI-Evaluation-Environment-for-SQL-Query-Optimization
 
 ## Description and Motivation
 The **SQL Query Reviewer & Optimizer** is a real-world task environment for OpenEnv. This environment is designed for AI agents that act as Database Engineers. Typically, agent environments test simple logical parsing, but this environment evaluates deep database understanding. It simulates tasks humans actually do: debugging syntactically broken SQL, rewriting legacy queries for efficient execution (e.g. enforcing direct JOINs over table scans), and producing completely new queries that fit within strict computational or token budgets.
@@ -23,27 +33,5 @@ The environment returns (`SqlEnvObservation`):
 ## Setup and Usage
 ### Using Docker (Hugging Face Spaces compatible)
 ```bash
-docker build -t sql_env -f server/Dockerfile .
+docker build -t sql_env -f Dockerfile .
 docker run -p 8000:8000 sql_env
-```
-Once running, you can hit the `/reset`, `/step`, `/state`, `/schema` endpoints via `http://localhost:8000`.
-
-### Local Development
-Ensure dependencies are installed, then run:
-```bash
-python -m server.app --port 8000
-```
-Use `openenv validate` to ensure OpenEnv Spec compliance.
-
-## Baseline Inference and Scores
-The baseline uses an Async OpenAI client script against default OpenAI-compatible APIs (like vLLM or HF Router).
-Run it with:
-```bash
-export OPENAI_API_KEY="your-key"
-python inference.py
-```
-
-### Baseline Scores (Qwen/Qwen2.5-72B-Instruct)
-- **Easy:** 1.0
-- **Medium:** 1.0 
-- **Hard:** 1.0 (Depends heavily on LLM formatting, but Qwen2.5 correctly formats SQL schemas natively).
