@@ -22,7 +22,7 @@ class SqlEnvironment(Environment):
         self.current_task_info = None
 
     # =========================
-    # RESET
+    # RESET (SAFE)
     # =========================
     def reset(self, *args, **kwargs):
         try:
@@ -30,35 +30,29 @@ class SqlEnvironment(Environment):
 
             task = "easy"
 
-            # Handle validator formats
-            try:
-                if "task" in kwargs:
-                    task = kwargs["task"]
-                elif "task_id" in kwargs:
-                    task = kwargs["task_id"]
-                elif len(args) > 0:
-                    arg = args[0]
-                    if isinstance(arg, dict):
-                        task = arg.get("task") or arg.get("task_id") or "easy"
-                    elif isinstance(arg, str):
-                        task = arg
-            except Exception:
-                task = "easy"
+            if "task" in kwargs:
+                task = kwargs["task"]
+            elif "task_id" in kwargs:
+                task = kwargs["task_id"]
+            elif len(args) > 0:
+                arg = args[0]
+                if isinstance(arg, dict):
+                    task = arg.get("task") or arg.get("task_id") or "easy"
+                elif isinstance(arg, str):
+                    task = arg
 
-            if not isinstance(task, str) or task not in TASKS:
+            if task not in TASKS:
                 task = "easy"
 
             self.current_task_key = task
             self.current_task_info = TASKS[task]
 
-            # Close old connection
             try:
                 if self.conn:
                     self.conn.close()
             except Exception:
                 pass
 
-            # Create new DB
             self.conn = self.current_task_info["setup_fn"]()
 
             return SqlEnvObservation(
@@ -69,7 +63,6 @@ class SqlEnvironment(Environment):
             )
 
         except Exception as e:
-            # NEVER crash
             return SqlEnvObservation(
                 task_description="",
                 schema_info="",
@@ -78,31 +71,31 @@ class SqlEnvironment(Environment):
             )
 
     # =========================
-    # STEP (100% SAFE)
+    # STEP (FULLY SAFE)
     # =========================
     def step(self, action: SqlEnvAction):
-        self._state.step_count += 1
-
-        # Safety: ensure reset happened
-        if not self.conn or not self.current_task_info:
-            return (
-                SqlEnvObservation(
-                    task_description="",
-                    schema_info="",
-                    initial_query=None,
-                    feedback="Environment not initialized. Call /reset first."
-                ),
-                0.0,
-                True,
-                {}
-            )
-
-        reward = 0.0
-        done = False
-        feedback = ""
-
         try:
-            # ================= TEST =================
+            self._state.step_count += 1
+
+            # Ensure reset happened
+            if not self.conn or not self.current_task_info:
+                return (
+                    SqlEnvObservation(
+                        task_description="",
+                        schema_info="",
+                        initial_query=None,
+                        feedback="Environment not initialized. Call /reset first."
+                    ),
+                    0.0,
+                    True,
+                    {}
+                )
+
+            reward = 0.0
+            done = False
+            feedback = ""
+
+            # -------- TEST --------
             if action.action_type == "test":
                 try:
                     cursor = self.conn.cursor()
@@ -120,50 +113,54 @@ class SqlEnvironment(Environment):
                     feedback = f"Query failed: {str(e)}"
                     reward = -0.05
 
-            # ================= SUBMIT =================
+            # -------- SUBMIT --------
             elif action.action_type == "submit":
                 done = True
-
                 try:
-                    if not self.current_task_key:
-                        raise ValueError("Task not initialized")
-
                     grader_fn = getattr(
                         Graders,
                         f"grade_{self.current_task_key}",
                         None
                     )
 
-                    if grader_fn is None:
-                        raise ValueError(
-                            f"No grader found for task: {self.current_task_key}"
-                        )
-
-                    score, feedback = grader_fn(self.conn, action.query)
-                    reward = float(score)
+                    if grader_fn:
+                        score, feedback = grader_fn(self.conn, action.query)
+                        reward = float(score)
+                    else:
+                        feedback = "Grader not found"
+                        reward = -0.1
 
                 except Exception as e:
                     feedback = f"Grading error: {str(e)}"
                     reward = -0.1
 
-            # ================= INVALID ACTION =================
+            # -------- INVALID --------
             else:
-                feedback = "Invalid action_type. Use 'test' or 'submit'."
+                feedback = "Invalid action_type"
                 reward = -0.1
 
+            observation = SqlEnvObservation(
+                task_description=str(self.current_task_info.get("description", "")),
+                schema_info=str(self.current_task_info.get("schema_info", "")),
+                initial_query=str(self.current_task_info.get("initial_query", "")),
+                feedback=str(feedback)
+            )
+
+            return observation, float(reward), bool(done), {}
+
         except Exception as e:
-            feedback = f"Unexpected error: {str(e)}"
-            reward = -0.1
-            done = False
-
-        observation = SqlEnvObservation(
-            task_description=str(self.current_task_info.get("description", "")),
-            schema_info=str(self.current_task_info.get("schema_info", "")),
-            initial_query=str(self.current_task_info.get("initial_query", "")),
-            feedback=str(feedback)
-        )
-
-        return observation, float(reward), bool(done), {}
+            # 🚨 THIS GUARANTEES NO 500 EVER
+            return (
+                SqlEnvObservation(
+                    task_description="",
+                    schema_info="",
+                    initial_query=None,
+                    feedback=f"Fatal error: {str(e)}"
+                ),
+                0.0,
+                True,
+                {}
+            )
 
     @property
     def state(self) -> State:
