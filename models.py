@@ -4,21 +4,14 @@ from pydantic import Field
 
 
 class SqlEnvAction(Action):
-    """Action for the SQL Query Reviewer & Optimizer environment."""
+    """Action for the SQL environment"""
 
-    action_type: str = Field(
-        ...,
-        description="Either 'test' or 'submit'"
-    )
-
-    query: str = Field(
-        ...,
-        description="SQL query"
-    )
+    action_type: str = Field(..., description="Either 'test' or 'submit'")
+    query: str = Field(..., description="SQL query")
 
 
 class SqlEnvObservation(Observation):
-    """Observation from the SQL environment."""
+    """Observation from the SQL environment"""
 
     task_description: str = Field(default="")
     schema_info: str = Field(default="")
