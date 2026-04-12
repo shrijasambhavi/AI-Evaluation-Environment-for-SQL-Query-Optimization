@@ -127,7 +127,7 @@ def run_task(baseline_client, task_name: str, oai_client: OpenAI):
         
         rewards.append(reward)
         steps_taken = step
-        obs = result
+        obs = result.observation
         
         # OpenEnv requirements
         log_step(step=step, action=compact_action, reward=reward, done=done, error=error)
@@ -146,14 +146,14 @@ def main():
     if not API_KEY:
         print("Set HF_TOKEN or OPENAI_API_KEY")
         return
-        
+
     oai_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    # Run entirely locally using the Python class
-    from server.sql_env_environment import SqlEnvironment
-    env_client = SqlEnvironment()
-        
+    base_url = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+
+    from client import SqlEnv
     for task in ["easy", "medium", "hard"]:
-        run_task(env_client, task, oai_client)
+        with SqlEnv(base_url=base_url) as env_client:
+            run_task(env_client, task, oai_client)
 
 if __name__ == "__main__":
     main()
