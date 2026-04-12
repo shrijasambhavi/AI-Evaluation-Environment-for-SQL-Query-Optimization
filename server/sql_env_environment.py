@@ -1,5 +1,5 @@
 # Copyright (c) Meta Platforms, Inc.
-# Modified for OpenEnv hackathon validation compatibility
+# Modified for OpenEnv Hackathon - Fully Validator Safe Version
 
 from uuid import uuid4
 
@@ -17,7 +17,7 @@ except (ModuleNotFoundError, ImportError):
 class SqlEnvironment(Environment):
     """
     SQL Query Reviewer & Optimizer environment.
-    Validator-safe implementation.
+    Fully compatible with OpenEnv validator.
     """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
@@ -29,32 +29,40 @@ class SqlEnvironment(Environment):
         self.current_task_key = None
         self.current_task_info = None
 
-    # ✅ FIXED RESET (validator-safe)
-    def reset(self, task: str = "easy", seed: int = None, **kwargs) -> SqlEnvObservation:
+    # ✅ FINAL RESET (handles ALL validator formats)
+    def reset(self, *args, **kwargs) -> SqlEnvObservation:
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._reset_count += 1
 
-        # 🧠 Handle ANY input format safely
-        try:
-            # If validator sends JSON body as dict
-            if isinstance(task, dict):
-                task = task.get("task") or task.get("task_id") or "easy"
+        task = "easy"
 
-            # If no task passed
-            if not isinstance(task, str):
-                task = "easy"
+        try:
+            # Case 1: kwargs
+            if "task" in kwargs:
+                task = kwargs["task"]
+            elif "task_id" in kwargs:
+                task = kwargs["task_id"]
+
+            # Case 2: args
+            elif len(args) > 0:
+                arg = args[0]
+
+                if isinstance(arg, dict):
+                    task = arg.get("task") or arg.get("task_id") or "easy"
+                elif isinstance(arg, str):
+                    task = arg
 
         except Exception:
             task = "easy"
 
-        # ✅ Validate task
-        if task not in TASKS:
+        # Validate task safely
+        if not isinstance(task, str) or task not in TASKS:
             task = "easy"
 
         self.current_task_key = task
         self.current_task_info = TASKS[task]
 
-        # 🔧 Safe DB initialization
+        # Safe DB handling
         try:
             if self.conn:
                 self.conn.close()
@@ -64,10 +72,9 @@ class SqlEnvironment(Environment):
         try:
             self.conn = self.current_task_info["setup_fn"]()
         except Exception:
-            # fallback (avoid crash)
+            # fallback to avoid crash
             self.conn = self.current_task_info["setup_fn"]()
 
-        # ✅ Always return safe, non-null values
         return SqlEnvObservation(
             task_description=str(self.current_task_info.get("description", "")),
             schema_info=str(self.current_task_info.get("schema_info", "")),
@@ -77,7 +84,7 @@ class SqlEnvironment(Environment):
             reward=0.0
         )
 
-    # ✅ STEP (safe)
+    # ✅ STEP (safe + robust)
     def step(self, action: SqlEnvAction) -> SqlEnvObservation:  # type: ignore[override]
         self._state.step_count += 1
 
@@ -102,9 +109,13 @@ class SqlEnvironment(Environment):
 
             elif action.action_type == "submit":
                 done = True
-                grader_fn = getattr(Graders, f"grade_{self.current_task_key}")
-                score, feedback = grader_fn(self.conn, action.query)
-                reward = float(score)
+                try:
+                    grader_fn = getattr(Graders, f"grade_{self.current_task_key}")
+                    score, feedback = grader_fn(self.conn, action.query)
+                    reward = float(score)
+                except Exception as e:
+                    feedback = f"Grading error: {str(e)}"
+                    reward = -0.1
 
             else:
                 feedback = "Invalid action_type. Use 'test' or 'submit'."
